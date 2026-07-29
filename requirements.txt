@@ -1,0 +1,8 @@
+fastapi
+SQLAlchemy
+pydantic
+pydantic[email]
+pydantic-settings
+bcrypt
+PyJWT
+aiosqlite
