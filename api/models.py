@@ -49,6 +49,6 @@ class RefreshTokenModel(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     token: Mapped[str] = mapped_column(index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("Users.id", ondelete="CASCADE"), index=True)
     is_used: Mapped[bool] = mapped_column(default=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)

@@ -1,12 +1,14 @@
 from fastapi import APIRouter, status, HTTPException, Depends
 from sqlalchemy import select, or_
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import jwt
 
 from api.database import SessionDep
-from api.schemas import UserRegisterSchema, UserLoginSchema, TokenRefreshRequestSchema
-from api.models import UserModel, RefreshTokenModel
+from api.schemas import UserRegisterSchema, UserLoginSchema, TokenRefreshRequestSchema, UserPinLoginSchema, UserPinSetupSchema
+from api.models import UserModel, RefreshTokenModel, AccountModel
+from api.utils.dependencies import get_current_user
 from api.utils.security import hash_password, verify_password, create_access_token, create_refresh_token
+from config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -32,6 +34,14 @@ async def register(data: UserRegisterSchema, session: SessionDep):
         hashed_password=password_hash,
     )
     session.add(new_user)
+
+    await session.flush()
+    new_account = AccountModel(
+        user_id=new_user.id,
+        balance=500.00
+    )
+    session.add(new_account)
+
     await session.commit()
     return {"status": "success", "detail": "User registered successfully"}
 
@@ -60,6 +70,126 @@ async def login(data: UserLoginSchema, session: SessionDep):
         )
 
     access_token = create_access_token(db_user.id)
-    refresh_token = create_refresh_token(db_user.id)
+    refresh_token, token_expire = create_refresh_token(db_user.id)
+
+    new_db_token = RefreshTokenModel(
+        token=refresh_token,
+        user_id=db_user.id,
+        expires_at=token_expire
+    )
+    session.add(new_db_token)
+    await session.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "Bearer",
+    }
 
 
+@router.post("/refresh", status_code=status.HTTP_200_OK)
+async def refresh_tokens(data: TokenRefreshRequestSchema, session: SessionDep):
+    try:
+        payload = jwt.decode(data.refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        token_type = payload.get("type")
+
+        if token_type != "refresh" or not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+    query = select(RefreshTokenModel).where(RefreshTokenModel.token == data.refresh_token)
+    result = await session.execute(query)
+    db_token = result.scalars().first()
+
+    if not db_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token not found in database")
+
+    if db_token.is_used:
+        delete_query = select(RefreshTokenModel).where(RefreshTokenModel.user_id == int(user_id))
+        tokens_to_delete = await session.execute(delete_query)
+        for t in tokens_to_delete.scalars().all():
+            await session.delete(t)
+        await session.commit()
+
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security alert: Token reuse detected. All sessions revoked.")
+
+    if db_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired in database")
+
+    db_token.is_used = True
+
+    new_access_token = create_access_token(int(user_id))
+    new_refresh_token, new_token_expire = create_refresh_token(int(user_id))
+
+    new_db_token = RefreshTokenModel(
+        token=new_refresh_token,
+        user_id=int(user_id),
+        expires_at=new_token_expire
+    )
+    session.add(new_db_token)
+    await session.commit()
+
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "Bearer"
+    }
+
+
+@router.post("/set-pin", status_code=status.HTTP_200_OK)
+async def set_pincode(data: UserPinSetupSchema, session: SessionDep, current_user: UserModel = Depends(get_current_user)):
+    pincode_hash = hash_password(data.pincode)
+    current_user.hashed_pin = pincode_hash
+    await session.commit()
+    return {"status": "success", "detail": "PIN code successfully set"}
+
+
+@router.post("/login-pin", status_code=status.HTTP_200_OK)
+async def login_pincode(data: UserPinLoginSchema, session: SessionDep):
+    try:
+        payload = jwt.decode(data.refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        token_type = payload.get("type")
+
+        if token_type != "refresh" or not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+    query = select(UserModel).where(UserModel.id == int(user_id))
+    result = await session.execute(query)
+    db_user: UserModel | None = result.scalars().first()
+
+    if db_user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    if db_user.hashed_pin is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN code is not set for this user")
+
+    if not verify_password(data.pincode, db_user.hashed_pin):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect PIN code")
+
+    access_token = create_access_token(db_user.id)
+    refresh_token, token_expire = create_refresh_token(db_user.id)
+
+    new_db_token = RefreshTokenModel(
+        token=refresh_token,
+        user_id=db_user.id,
+        expires_at=token_expire
+    )
+    session.add(new_db_token)
+    await session.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "Bearer",
+    }

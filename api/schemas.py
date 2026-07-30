@@ -13,7 +13,12 @@ class UserLoginSchema(BaseModel):
     password: str = Field(min_length=6, max_length=20)
 
 
+class UserPinSetupSchema(BaseModel):
+    pincode: str = Field(max_length=4, min_length=4, pattern=r"^\d{4}$")
+
+
 class UserPinLoginSchema(BaseModel):
+    refresh_token: str
     pincode: str = Field(max_length=4, min_length=4, pattern=r"^\d{4}$")
 
 
