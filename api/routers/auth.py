@@ -1,3 +1,5 @@
+import email
+
 from fastapi import APIRouter, status, HTTPException, Depends
 from sqlalchemy import select, or_
 from datetime import datetime, timezone
@@ -15,8 +17,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(data: UserRegisterSchema, session: SessionDep):
+    username = data.username.lower()
+    email = data.email.lower()
+
     query = select(UserModel).where(
-        (UserModel.username == data.username) | (UserModel.email == data.email)
+        (UserModel.username == username) | (UserModel.email == email)
     )
     result = await session.execute(query)
     existing_user = result.scalars().first()
@@ -29,8 +34,8 @@ async def register(data: UserRegisterSchema, session: SessionDep):
 
     password_hash = hash_password(data.password)
     new_user = UserModel(
-        username=data.username,
-        email=data.email,
+        username=username,
+        email=email,
         hashed_password=password_hash,
     )
     session.add(new_user)
@@ -48,10 +53,12 @@ async def register(data: UserRegisterSchema, session: SessionDep):
 
 @router.post("/login", status_code=status.HTTP_200_OK)
 async def login(data: UserLoginSchema, session: SessionDep):
+    loginfield = data.login_field.lower()
+
     query = select(UserModel).where(
         or_(
-            UserModel.username == data.login_field,
-            UserModel.email == data.login_field
+            UserModel.username == loginfield,
+            UserModel.email == loginfield
         )
     )
     result = await session.execute(query)
@@ -164,24 +171,30 @@ async def login_pincode(data: UserPinLoginSchema, session: SessionDep):
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
-    query = select(UserModel).where(UserModel.id == int(user_id))
+    query = select(RefreshTokenModel).where(RefreshTokenModel.token == data.refresh_token)
     result = await session.execute(query)
-    db_user: UserModel | None = result.scalars().first()
+    db_token = result.scalars().first()
 
-    if db_user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if db_token is None or db_token.is_used:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token not found or already used (Session expired)")
 
-    if db_user.hashed_pin is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN code is not set for this user")
+    user_query = select(UserModel).where(UserModel.id == int(user_id))
+    user_result = await session.execute(user_query)
+    db_user = user_result.scalars().first()
+
+    if db_user is None or db_user.hashed_pin is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found or PIN not set")
 
     if not verify_password(data.pincode, db_user.hashed_pin):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect PIN code")
 
+    db_token.is_used = True
+
     access_token = create_access_token(db_user.id)
-    refresh_token, token_expire = create_refresh_token(db_user.id)
+    refresh_token_str, token_expire = create_refresh_token(db_user.id)
 
     new_db_token = RefreshTokenModel(
-        token=refresh_token,
+        token=refresh_token_str,
         user_id=db_user.id,
         expires_at=token_expire
     )
@@ -189,7 +202,9 @@ async def login_pincode(data: UserPinLoginSchema, session: SessionDep):
     await session.commit()
 
     return {
+        "status": "success",
+        "detail": "PIN verified successfully",
         "access_token": access_token,
-        "refresh_token": refresh_token,
+        "refresh_token": refresh_token_str,
         "token_type": "Bearer",
     }
