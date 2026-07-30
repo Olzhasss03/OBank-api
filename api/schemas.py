@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, EmailStr
 
@@ -35,3 +36,16 @@ class TokenRefreshRequestSchema(BaseModel):
 class TransferSchema(BaseModel):
     receiver_username: str
     amount: Decimal = Field(gt=0, decimal_places=2)
+
+
+class TransactionResponseSchema(BaseModel):
+    id: int
+    tx_type: str
+    counterparty: str
+    amount: Decimal
+    created_at: datetime
+
+
+class HistoryResponseSchema(BaseModel):
+    status: str
+    transactions: list[TransactionResponseSchema]

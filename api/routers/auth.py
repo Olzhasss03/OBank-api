@@ -1,5 +1,3 @@
-import email
-
 from fastapi import APIRouter, status, HTTPException, Depends
 from sqlalchemy import select, or_
 from datetime import datetime, timezone

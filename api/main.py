@@ -3,6 +3,7 @@ from fastapi import FastAPI
 
 from api.database import engine, Base
 from api.routers.auth import router as auth_router
+from api.routers.account import router as account_router
 
 
 @asynccontextmanager
@@ -21,3 +22,4 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
+app.include_router(account_router)
