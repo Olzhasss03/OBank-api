@@ -1,3 +1,4 @@
+uvicorn
 fastapi
 SQLAlchemy
 pydantic
@@ -6,3 +7,5 @@ pydantic-settings
 bcrypt
 PyJWT
 aiosqlite
+firebase-admin
+alembic

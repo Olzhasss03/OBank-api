@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from sqlalchemy.engine import default
 
 
 class UserRegisterSchema(BaseModel):
@@ -49,3 +50,25 @@ class TransactionResponseSchema(BaseModel):
 class HistoryResponseSchema(BaseModel):
     status: str
     transactions: list[TransactionResponseSchema]
+
+
+class TransferResponseSchema(BaseModel):
+    status: str = "success"
+    transaction: TransactionResponseSchema
+    new_balance: str
+
+
+class UserInfoResponseSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: EmailStr
+    joined_at: datetime
+    # is_admin: bool
+    # profile_picture:
+
+
+class FCMTokenRequest(BaseModel):
+    fcm_token: str
+    locale: str = "en"

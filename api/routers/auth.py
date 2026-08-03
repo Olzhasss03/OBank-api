@@ -1,4 +1,4 @@
-from fastapi import APIRouter, status, HTTPException, Depends
+from fastapi import APIRouter, status, Depends
 from sqlalchemy import select, or_
 from datetime import datetime, timezone
 import jwt
@@ -6,6 +6,7 @@ import jwt
 from api.database import SessionDep
 from api.schemas import UserRegisterSchema, UserLoginSchema, TokenRefreshRequestSchema, UserPinLoginSchema, UserPinSetupSchema
 from api.models import UserModel, RefreshTokenModel, AccountModel
+from api.utils import errors
 from api.utils.dependencies import get_current_user
 from api.utils.security import hash_password, verify_password, create_access_token, create_refresh_token
 from config import settings
@@ -25,10 +26,7 @@ async def register(data: UserRegisterSchema, session: SessionDep):
     existing_user = result.scalars().first()
 
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username or Email already registered",
-        )
+        raise errors.UserAlreadyRegisteredException()
 
     password_hash = hash_password(data.password)
     new_user = UserModel(
@@ -63,16 +61,10 @@ async def login(data: UserLoginSchema, session: SessionDep):
     db_user = result.scalars().first()
 
     if not db_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username/email or password"
-        )
+        raise errors.IncorrectUsernameOrPasswordException()
 
     if not verify_password(data.password, db_user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username/email or password",
-        )
+        raise errors.IncorrectUsernameOrPasswordException()
 
     access_token = create_access_token(db_user.id)
     refresh_token, token_expire = create_refresh_token(db_user.id)
@@ -100,19 +92,19 @@ async def refresh_tokens(data: TokenRefreshRequestSchema, session: SessionDep):
         token_type = payload.get("type")
 
         if token_type != "refresh" or not user_id:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+            raise errors.InvalidTokenTypeException()
 
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+        raise errors.RefreshTokenExpiredException()
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        raise errors.InvalidRefreshTokenException()
 
     query = select(RefreshTokenModel).where(RefreshTokenModel.token == data.refresh_token)
     result = await session.execute(query)
     db_token = result.scalars().first()
 
     if not db_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token not found in database")
+        raise errors.TokenNotFoundException()
 
     if db_token.is_used:
         delete_query = select(RefreshTokenModel).where(RefreshTokenModel.user_id == int(user_id))
@@ -121,10 +113,10 @@ async def refresh_tokens(data: TokenRefreshRequestSchema, session: SessionDep):
             await session.delete(t)
         await session.commit()
 
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security alert: Token reuse detected. All sessions revoked.")
+        raise errors.TokenReuseDetectedException()
 
     if db_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired in database")
+        raise errors.TokenExpiredInDatabaseException()
 
     db_token.is_used = True
 
@@ -162,29 +154,29 @@ async def login_pincode(data: UserPinLoginSchema, session: SessionDep):
         token_type = payload.get("type")
 
         if token_type != "refresh" or not user_id:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+            raise errors.InvalidTokenTypeException()
 
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+        raise errors.RefreshTokenExpiredException()
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        raise errors.InvalidRefreshTokenException()
 
     query = select(RefreshTokenModel).where(RefreshTokenModel.token == data.refresh_token)
     result = await session.execute(query)
     db_token = result.scalars().first()
 
     if db_token is None or db_token.is_used:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token not found or already used (Session expired)")
+        raise errors.SessionExpiredException()
 
     user_query = select(UserModel).where(UserModel.id == int(user_id))
     user_result = await session.execute(user_query)
     db_user = user_result.scalars().first()
 
     if db_user is None or db_user.hashed_pin is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found or PIN not set")
+        raise errors.UserNotFoundOrPinNotSetException()
 
     if not verify_password(data.pincode, db_user.hashed_pin):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect PIN code")
+        raise errors.IncorrectPinCodeException()
 
     db_token.is_used = True
 

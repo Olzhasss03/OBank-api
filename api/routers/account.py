@@ -1,10 +1,12 @@
-from fastapi import APIRouter, status, Depends, HTTPException, Query
+from fastapi import APIRouter, status, Depends, Query
 from sqlalchemy import select, or_
 
 from api.database import SessionDep
 from api.models import UserModel, AccountModel, TransactionModel
-from api.schemas import TransferSchema, TransactionResponseSchema, HistoryResponseSchema
+from api.schemas import TransferSchema, TransactionResponseSchema, HistoryResponseSchema, TransferResponseSchema
 from api.utils.dependencies import get_current_user
+from api.utils import errors
+from api.utils.push_service import send_push_to_user
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -16,10 +18,7 @@ async def get_balance(session: SessionDep, current_user: UserModel = Depends(get
     account: AccountModel | None = result.scalars().first()
 
     if account is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Account not found"
-        )
+        raise errors.AccountNotFoundException()
 
     return {
         "status": "success",
@@ -28,7 +27,7 @@ async def get_balance(session: SessionDep, current_user: UserModel = Depends(get
     }
 
 
-@router.post("/transfer", status_code=status.HTTP_200_OK)
+@router.post("/transfer", response_model=TransferResponseSchema, status_code=status.HTTP_200_OK)
 async def transfer_money(
         data: TransferSchema,
         session: SessionDep,
@@ -37,14 +36,14 @@ async def transfer_money(
     receiver_username = data.receiver_username.lower()
 
     if current_user.username == receiver_username:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot transfer money to yourself")
+        raise errors.CantTransferYourselfException()
 
     receiver_query = select(UserModel).where(UserModel.username == receiver_username)
     receiver_result = await session.execute(receiver_query)
     receiver: UserModel | None = receiver_result.scalars().first()
 
     if receiver is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receiver not found")
+        raise errors.ReceiverNotFoundException()
 
     sender_account_query = select(AccountModel).where(AccountModel.user_id == current_user.id).with_for_update()
     receiver_account_query = select(AccountModel).where(AccountModel.user_id == receiver.id).with_for_update()
@@ -53,16 +52,10 @@ async def transfer_money(
     receiver_account = (await session.execute(receiver_account_query)).scalars().first()
 
     if sender_account is None or receiver_account is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Account error. Please contact support."
-        )
+        raise errors.AccountErrorException()
 
     if sender_account.balance < data.amount:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Insufficient funds"
-        )
+        raise errors.InsufficientFundsException()
 
     sender_account.balance -= data.amount
     receiver_account.balance += data.amount
@@ -73,13 +66,29 @@ async def transfer_money(
         amount=data.amount
     )
     session.add(new_transaction)
-
     await session.commit()
+
+    await session.refresh(new_transaction)
+
+    await send_push_to_user(
+        user_id=receiver_account.user_id,
+        title_key="transfer_title",
+        body_key="transfer_body",
+        session=session,
+        amount=data.amount,
+        sender=current_user.username
+    )
 
     return {
         "status": "success",
-        "detail": f"Successfully transferred {data.amount} to {receiver.username}",
-        "new_balance": sender_account.balance
+        "transaction": {
+            "id": new_transaction.id,
+            "tx_type": "outgoing",
+            "counterparty": receiver.username,
+            "amount": data.amount,
+            "created_at": new_transaction.created_at
+        },
+        "new_balance": str(sender_account.balance)
     }
 
 
@@ -94,7 +103,7 @@ async def get_transaction_history(
     account = (await session.execute(account_query)).scalars().first()
 
     if account is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+        raise errors.AccountNotFoundException()
 
     history_query = select(TransactionModel).where(
         or_(
@@ -140,4 +149,26 @@ async def get_transaction_history(
     return {
         "status": "success",
         "transactions": formatted_transactions
+    }
+
+
+@router.get("/search")
+async def search_users(
+        session: SessionDep,
+        query: str = Query(..., min_length=1),
+        current_user: UserModel = Depends(get_current_user)
+):
+    clean_query = query.lstrip("@").lower()
+
+    db_query = select(UserModel.username).where(
+        UserModel.username.startswith(clean_query),
+        UserModel.id != current_user.id
+    ).limit(5)
+
+    result = await session.execute(db_query)
+    usernames = result.scalars().all()
+
+    return {
+        "status": "success",
+        "matches": usernames
     }

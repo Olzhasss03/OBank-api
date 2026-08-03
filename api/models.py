@@ -52,3 +52,17 @@ class RefreshTokenModel(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("Users.id", ondelete="CASCADE"), index=True)
     is_used: Mapped[bool] = mapped_column(default=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)
+
+
+class DeviceTokenModel(Base):
+    __tablename__ = "device_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("Users.id", ondelete="CASCADE"), index=True)
+    fcm_token: Mapped[str] = mapped_column(String, unique=True)
+    locale: Mapped[str] = mapped_column(String, server_default="en")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
