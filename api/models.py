@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, DateTime, Numeric, String
+from sqlalchemy import ForeignKey, DateTime, Numeric, String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -19,6 +19,7 @@ class UserModel(Base):
         index=True
     )
     account: Mapped["AccountModel"] = relationship(back_populates="user", uselist=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class AccountModel(Base):

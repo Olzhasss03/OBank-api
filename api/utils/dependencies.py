@@ -5,6 +5,7 @@ import jwt
 
 from api.database import SessionDep
 from api.models import UserModel
+from api.utils.errors import APIException, ErrorDetail
 from config import settings
 
 security = HTTPBearer()
@@ -41,3 +42,9 @@ async def get_current_user(
         raise credentials_exception
 
     return user
+
+
+async def get_current_admin_user(current_user: UserModel = Depends(get_current_user)) -> UserModel:
+    if not current_user.is_admin:
+        raise APIException(ErrorDetail.AUTH_INSUFFICIENT_PERMISSIONS)
+    return current_user

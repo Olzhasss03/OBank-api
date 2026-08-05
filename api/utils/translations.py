@@ -12,4 +12,9 @@ PUSH_TRANSLATIONS = {
 
 def t(locale: str, key: str, **kwargs) -> str:
     lang = locale if locale in PUSH_TRANSLATIONS else "en"
-    return PUSH_TRANSLATIONS[lang].get(key, "").format(**kwargs)
+    text_template = PUSH_TRANSLATIONS[lang].get(key, key)
+
+    try:
+        return text_template.format(**kwargs)
+    except KeyError:
+        return text_template

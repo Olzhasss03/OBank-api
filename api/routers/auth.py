@@ -6,8 +6,8 @@ import jwt
 from api.database import SessionDep
 from api.schemas import UserRegisterSchema, UserLoginSchema, TokenRefreshRequestSchema, UserPinLoginSchema, UserPinSetupSchema
 from api.models import UserModel, RefreshTokenModel, AccountModel
-from api.utils import errors
 from api.utils.dependencies import get_current_user
+from api.utils.errors import APIException, ErrorDetail
 from api.utils.security import hash_password, verify_password, create_access_token, create_refresh_token
 from config import settings
 
@@ -26,7 +26,7 @@ async def register(data: UserRegisterSchema, session: SessionDep):
     existing_user = result.scalars().first()
 
     if existing_user:
-        raise errors.UserAlreadyRegisteredException()
+        raise APIException(ErrorDetail.USER_ALREADY_EXISTS)
 
     password_hash = hash_password(data.password)
     new_user = UserModel(
@@ -61,10 +61,10 @@ async def login(data: UserLoginSchema, session: SessionDep):
     db_user = result.scalars().first()
 
     if not db_user:
-        raise errors.IncorrectUsernameOrPasswordException()
+        raise APIException(ErrorDetail.AUTH_INVALID_CREDENTIALS)
 
     if not verify_password(data.password, db_user.hashed_password):
-        raise errors.IncorrectUsernameOrPasswordException()
+        raise APIException(ErrorDetail.AUTH_INVALID_CREDENTIALS)
 
     access_token = create_access_token(db_user.id)
     refresh_token, token_expire = create_refresh_token(db_user.id)
@@ -92,19 +92,19 @@ async def refresh_tokens(data: TokenRefreshRequestSchema, session: SessionDep):
         token_type = payload.get("type")
 
         if token_type != "refresh" or not user_id:
-            raise errors.InvalidTokenTypeException()
+            raise APIException(ErrorDetail.TOKEN_INVALID_TYPE)
 
     except jwt.ExpiredSignatureError:
-        raise errors.RefreshTokenExpiredException()
+        raise APIException(ErrorDetail.TOKEN_REFRESH_EXPIRED)
     except jwt.InvalidTokenError:
-        raise errors.InvalidRefreshTokenException()
+        raise APIException(ErrorDetail.TOKEN_REFRESH_INVALID)
 
     query = select(RefreshTokenModel).where(RefreshTokenModel.token == data.refresh_token)
     result = await session.execute(query)
     db_token = result.scalars().first()
 
     if not db_token:
-        raise errors.TokenNotFoundException()
+        raise APIException(ErrorDetail.TOKEN_MISSING)
 
     if db_token.is_used:
         delete_query = select(RefreshTokenModel).where(RefreshTokenModel.user_id == int(user_id))
@@ -113,10 +113,10 @@ async def refresh_tokens(data: TokenRefreshRequestSchema, session: SessionDep):
             await session.delete(t)
         await session.commit()
 
-        raise errors.TokenReuseDetectedException()
+        raise APIException(ErrorDetail.TOKEN_REUSE_DETECTED)
 
     if db_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
-        raise errors.TokenExpiredInDatabaseException()
+        raise APIException(ErrorDetail.TOKEN_EXPIRED)
 
     db_token.is_used = True
 
@@ -154,29 +154,31 @@ async def login_pincode(data: UserPinLoginSchema, session: SessionDep):
         token_type = payload.get("type")
 
         if token_type != "refresh" or not user_id:
-            raise errors.InvalidTokenTypeException()
+            raise APIException(ErrorDetail.TOKEN_INVALID_TYPE)
 
     except jwt.ExpiredSignatureError:
-        raise errors.RefreshTokenExpiredException()
+        raise APIException(ErrorDetail.TOKEN_REFRESH_EXPIRED)
     except jwt.InvalidTokenError:
-        raise errors.InvalidRefreshTokenException()
+        raise APIException(ErrorDetail.TOKEN_REFRESH_INVALID)
 
     query = select(RefreshTokenModel).where(RefreshTokenModel.token == data.refresh_token)
     result = await session.execute(query)
     db_token = result.scalars().first()
 
     if db_token is None or db_token.is_used:
-        raise errors.SessionExpiredException()
+        raise APIException(ErrorDetail.SESSION_EXPIRED)
 
     user_query = select(UserModel).where(UserModel.id == int(user_id))
     user_result = await session.execute(user_query)
     db_user = user_result.scalars().first()
 
-    if db_user is None or db_user.hashed_pin is None:
-        raise errors.UserNotFoundOrPinNotSetException()
+    if db_user is None:
+        raise APIException(ErrorDetail.USER_NOT_FOUND)
+    if db_user.hashed_pin is None:
+        raise APIException(ErrorDetail.USER_PIN_NOT_SET)
 
     if not verify_password(data.pincode, db_user.hashed_pin):
-        raise errors.IncorrectPinCodeException()
+        raise APIException(ErrorDetail.USER_INVALID_PIN)
 
     db_token.is_used = True
 

@@ -1,11 +1,13 @@
+from datetime import datetime, UTC, timedelta
+
 from fastapi import APIRouter, status, Depends, Query
 from sqlalchemy import select, or_
 
 from api.database import SessionDep
 from api.models import UserModel, AccountModel, TransactionModel
-from api.schemas import TransferSchema, TransactionResponseSchema, HistoryResponseSchema, TransferResponseSchema
+from api.schemas import TransferSchema, HistoryResponseSchema, TransferResponseSchema, UserPushRequestSchema
 from api.utils.dependencies import get_current_user
-from api.utils import errors
+from api.utils.errors import APIException, ErrorDetail
 from api.utils.push_service import send_push_to_user
 
 router = APIRouter(prefix="/account", tags=["account"])
@@ -18,7 +20,7 @@ async def get_balance(session: SessionDep, current_user: UserModel = Depends(get
     account: AccountModel | None = result.scalars().first()
 
     if account is None:
-        raise errors.AccountNotFoundException()
+        raise APIException(ErrorDetail.ACCOUNT_NOT_FOUND)
 
     return {
         "status": "success",
@@ -36,14 +38,14 @@ async def transfer_money(
     receiver_username = data.receiver_username.lower()
 
     if current_user.username == receiver_username:
-        raise errors.CantTransferYourselfException()
+        raise APIException(ErrorDetail.TRANSACTION_SELF_TRANSFER_NOT_ALLOWED)
 
     receiver_query = select(UserModel).where(UserModel.username == receiver_username)
     receiver_result = await session.execute(receiver_query)
     receiver: UserModel | None = receiver_result.scalars().first()
 
     if receiver is None:
-        raise errors.ReceiverNotFoundException()
+        raise APIException(ErrorDetail.USER_RECEIVER_NOT_FOUND)
 
     sender_account_query = select(AccountModel).where(AccountModel.user_id == current_user.id).with_for_update()
     receiver_account_query = select(AccountModel).where(AccountModel.user_id == receiver.id).with_for_update()
@@ -51,11 +53,13 @@ async def transfer_money(
     sender_account = (await session.execute(sender_account_query)).scalars().first()
     receiver_account = (await session.execute(receiver_account_query)).scalars().first()
 
-    if sender_account is None or receiver_account is None:
-        raise errors.AccountErrorException()
+    if sender_account is None:
+        raise APIException(ErrorDetail.ACCOUNT_SENDER_NOT_FOUND)
+    if receiver_account is None:
+        raise APIException(ErrorDetail.ACCOUNT_RECEIVER_NOT_FOUND)
 
     if sender_account.balance < data.amount:
-        raise errors.InsufficientFundsException()
+        raise APIException(ErrorDetail.TRANSACTION_INSUFFICIENT_FUNDS)
 
     sender_account.balance -= data.amount
     receiver_account.balance += data.amount
@@ -70,10 +74,14 @@ async def transfer_money(
 
     await session.refresh(new_transaction)
 
-    await send_push_to_user(
+    push_request = UserPushRequestSchema(
         user_id=receiver_account.user_id,
         title_key="transfer_title",
-        body_key="transfer_body",
+        body_key="transfer_body"
+    )
+
+    await send_push_to_user(
+        request=push_request,
         session=session,
         amount=data.amount,
         sender=current_user.username
@@ -96,23 +104,48 @@ async def transfer_money(
 async def get_transaction_history(
         session: SessionDep,
         current_user: UserModel = Depends(get_current_user),
-        limit: int = Query(20, ge=1, le=100),
-        offset: int = Query(0, ge=0)
+        limit: int = Query(30, ge=1, le=100),
+        offset: int = Query(0, ge=0),
+        date_from: datetime | None = Query(None),
+        date_to: datetime | None = Query(None)
 ):
     account_query = select(AccountModel).where(AccountModel.user_id == current_user.id)
     account = (await session.execute(account_query)).scalars().first()
 
     if account is None:
-        raise errors.AccountNotFoundException()
+        raise APIException(ErrorDetail.ACCOUNT_NOT_FOUND)
 
-    history_query = select(TransactionModel).where(
-        or_(
-            TransactionModel.sender_account_id == account.id,
-            TransactionModel.receiver_account_id == account.id
+    if date_to is None:
+        date_to = datetime.now(UTC)
+    if date_from is None:
+        date_from = date_to - timedelta(days=31)
+
+    if date_from > date_to:
+        raise APIException(ErrorDetail.HISTORY_INVALID_DATE_RANGE)
+    if (date_to - date_from).days > 365:
+        raise APIException(ErrorDetail.HISTORY_PERIOD_TOO_LARGE)
+
+    history_query = (
+        select(TransactionModel)
+        .where(
+            or_(
+                TransactionModel.sender_account_id == account.id,
+                TransactionModel.receiver_account_id == account.id,
+            ),
+            TransactionModel.created_at >= date_from,
+            TransactionModel.created_at <= date_to,
         )
-    ).order_by(TransactionModel.created_at.desc()).offset(offset).limit(limit)
+        .order_by(TransactionModel.created_at.desc())
+        .offset(offset)
+        .limit(limit + 1)
+    )
 
     transactions = (await session.execute(history_query)).scalars().all()
+
+    has_more = len(transactions) > limit
+
+    if has_more:
+        transactions = transactions[:-1]
 
     other_account_ids = set()
     for tx in transactions:
@@ -148,6 +181,15 @@ async def get_transaction_history(
 
     return {
         "status": "success",
+        "period": {
+            "from": date_from,
+            "to": date_to
+        },
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
+            "has_more": has_more
+        },
         "transactions": formatted_transactions
     }
 

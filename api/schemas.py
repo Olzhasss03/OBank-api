@@ -1,7 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
-from sqlalchemy.engine import default
 
 
 class UserRegisterSchema(BaseModel):
@@ -47,8 +46,23 @@ class TransactionResponseSchema(BaseModel):
     created_at: datetime
 
 
+class HistoryPeriodSchema(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_: datetime = Field(alias="from")
+    to: datetime
+
+
+class HistoryPaginationSchema(BaseModel):
+    limit: int
+    offset: int
+    has_more: bool
+
+
 class HistoryResponseSchema(BaseModel):
     status: str
+    period: HistoryPeriodSchema
+    pagination: HistoryPaginationSchema
     transactions: list[TransactionResponseSchema]
 
 
@@ -72,3 +86,12 @@ class UserInfoResponseSchema(BaseModel):
 class FCMTokenRequest(BaseModel):
     fcm_token: str
     locale: str = "en"
+
+
+class BroadcastPushRequestSchema(BaseModel):
+    title_key: str
+    body_key: str
+
+
+class UserPushRequestSchema(BroadcastPushRequestSchema):
+    user_id: int

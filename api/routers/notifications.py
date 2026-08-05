@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, status
-from pydantic import BaseModel
 from sqlalchemy import select
 
 from api.database import SessionDep
 from api.models import UserModel, DeviceTokenModel
-from api.schemas import FCMTokenRequest
-from api.utils.dependencies import get_current_user
+from api.schemas import FCMTokenRequest, BroadcastPushRequestSchema
+from api.utils.dependencies import get_current_user, get_current_admin_user
+from api.utils.push_service import send_broadcast_push
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
@@ -34,3 +34,16 @@ async def save_fcm_token(
         await session.commit()
 
     return {"detail": "FCM token saved successfully"}
+
+
+@router.post("/broadcast", status_code=status.HTTP_200_OK)
+async def send_broadcast(
+        data: BroadcastPushRequestSchema,
+        session: SessionDep,
+        admin_user: UserModel = Depends(get_current_admin_user)
+):
+    await send_broadcast_push(data, session)
+    return {"detail": "The broadcast has been successfully sent."}
+
+
+

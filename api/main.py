@@ -7,7 +7,7 @@ from firebase_admin import credentials
 
 from config import settings
 from api.database import engine, Base
-from api.utils.errors import BaseAPIException
+from api.utils.errors import APIException
 from api.routers.auth import router as auth_router
 from api.routers.account import router as account_router
 from api.routers.user import router as user_router
@@ -41,15 +41,15 @@ app.add_middleware(
 )
 
 
-@app.exception_handler(BaseAPIException)
-async def custom_api_exception_handler(request: Request, exc: BaseAPIException):
+@app.exception_handler(APIException)
+async def api_exception_handler(request: Request, exc: APIException):
     return JSONResponse(
         status_code=exc.status_code,
         content={
             "success": False,
             "error": {
                 "status_code": exc.status_code,
-                "error_code": exc.error_code.value,
+                "error_code": exc.error_code,
                 "message": exc.message
             }
         }
