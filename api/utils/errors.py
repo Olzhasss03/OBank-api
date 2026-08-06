@@ -36,6 +36,12 @@ class ErrorDetail(Enum):
     HISTORY_INVALID_DATE_RANGE = (400, "The period start date cannot be later than the end date.")
     HISTORY_PERIOD_TOO_LARGE = (400, "Maximum history period is 365 days.")
 
+    IMAGE_INVALID_FORMAT = (415, "Unsupported image format.")
+    IMAGE_TOO_LARGE = (413, "Image is too large.")
+    IMAGE_NOT_VALID = (422, "Image is corrupted or is not a valid image.")
+
+    AVATAR_NOT_FOUND = (404, "Avatar not found.")
+
 
 class APIException(Exception):
     def __init__(self, error: ErrorDetail, custom_message: str = None):

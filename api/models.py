@@ -20,6 +20,7 @@ class UserModel(Base):
     )
     account: Mapped["AccountModel"] = relationship(back_populates="user", uselist=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    avatar_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class AccountModel(Base):

@@ -133,7 +133,7 @@ async def get_transaction_history(
                 TransactionModel.receiver_account_id == account.id,
             ),
             TransactionModel.created_at >= date_from,
-            TransactionModel.created_at <= date_to,
+            TransactionModel.created_at < (date_to + timedelta(days=1)),
         )
         .order_by(TransactionModel.created_at.desc())
         .offset(offset)

@@ -79,8 +79,8 @@ class UserInfoResponseSchema(BaseModel):
     username: str
     email: EmailStr
     joined_at: datetime
+    avatar_url: str | None
     # is_admin: bool
-    # profile_picture:
 
 
 class FCMTokenRequest(BaseModel):
@@ -95,3 +95,8 @@ class BroadcastPushRequestSchema(BaseModel):
 
 class UserPushRequestSchema(BroadcastPushRequestSchema):
     user_id: int
+
+
+class AvatarResponseSchema(BaseModel):
+    status: str
+    avatar_url: str
