@@ -6,9 +6,10 @@ pydantic[email]
 pydantic-settings
 bcrypt
 PyJWT
-aiosqlite
 firebase-admin
 alembic
 pillow
 boto3
 boto3-stubs
+botocore
+asyncpq

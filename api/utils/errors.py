@@ -41,6 +41,8 @@ class ErrorDetail(Enum):
     IMAGE_NOT_VALID = (422, "Image is corrupted or is not a valid image.")
 
     AVATAR_NOT_FOUND = (404, "Avatar not found.")
+    AVATAR_UPLOAD_FAILED = (400, "The file is corrupted or was transferred incorrectly.")
+    AVATAR_DELETE_FAILED = (400, "Failed to delete old avatar.")
 
 
 class APIException(Exception):

@@ -79,8 +79,8 @@ class UserInfoResponseSchema(BaseModel):
     username: str
     email: EmailStr
     joined_at: datetime
-    avatar_url: str | None
-    # is_admin: bool
+    avatar_key: str | None
+    is_admin: bool
 
 
 class FCMTokenRequest(BaseModel):

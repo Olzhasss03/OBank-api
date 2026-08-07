@@ -7,6 +7,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
+    DATABASE_URL: str
+
+    POSTGRES_DB: str
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+
     FIREBASE_CREDENTIALS_PATH: str
 
     R2_ENDPOINT_URL: str
