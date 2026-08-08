@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, HTMLResponse
 import firebase_admin
 from firebase_admin import credentials
 
@@ -54,6 +54,13 @@ async def api_exception_handler(request: Request, exc: APIException):
             }
         }
     )
+
+
+@app.get("/", response_class=HTMLResponse, tags=["OBank site"])
+async def get_site():
+    with open("index.html", "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return html_content
 
 app.include_router(auth_router)
 app.include_router(account_router)

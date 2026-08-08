@@ -11,7 +11,7 @@ from api.utils.errors import APIException, ErrorDetail
 from api.utils.image import process_avatar
 from api.utils.storage import upload_avatar, delete_avatar, build_avatar_url
 
-router = APIRouter(prefix="/user", tags=["user"])
+router = APIRouter(prefix="/user", tags=["User"])
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,29 @@ async def get_me(
         "joined_at": current_user.joined_at,
         "avatar_key": build_avatar_url(current_user.avatar_key),
         "is_admin": current_user.is_admin,
+    }
+
+
+@router.get("/{username}", response_model=UserInfoResponseSchema, status_code=status.HTTP_200_OK)
+async def get_user(
+        username: str,
+        session: SessionDep,
+        current_user: UserModel = Depends(get_current_user)
+):
+    user_query = select(UserModel).where(UserModel.username == username)
+    user_result = await session.execute(user_query)
+    user = user_result.scalars().first()
+
+    if not user:
+        raise APIException(ErrorDetail.USER_NOT_FOUND)
+
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "joined_at": user.joined_at,
+        "avatar_key": build_avatar_url(user.avatar_key),
+        "is_admin": user.is_admin,
     }
 
 

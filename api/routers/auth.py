@@ -11,7 +11,7 @@ from api.utils.errors import APIException, ErrorDetail
 from api.utils.security import hash_password, verify_password, create_access_token, create_refresh_token
 from config import settings
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

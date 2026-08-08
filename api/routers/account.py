@@ -10,7 +10,7 @@ from api.utils.dependencies import get_current_user
 from api.utils.errors import APIException, ErrorDetail
 from api.utils.push_service import send_push_to_user
 
-router = APIRouter(prefix="/account", tags=["account"])
+router = APIRouter(prefix="/account", tags=["Account"])
 
 
 @router.get("/balance", status_code=status.HTTP_200_OK)
